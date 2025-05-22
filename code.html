@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Section Timetable Generator</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f5f7fa;
+      padding: 20px;
+      color: #333;
+    }
+    h2 {
+      color: #0056b3;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+    label {
+      font-weight: 600;
+      font-size: 1rem;
+    }
+    input[type=number], input[type=text] {
+      font-size: 1rem;
+      padding: 6px 10px;
+      margin: 6px 0 12px 0;
+      width: 300px;
+      max-width: 90vw;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      transition: border-color 0.3s ease;
+    }
+    input[type=number]:focus, input[type=text]:focus {
+      border-color: #0056b3;
+      outline: none;
+    }
+    button {
+      background-color: #007bff;
+      border: none;
+      color: white;
+      padding: 12px 28px;
+      text-align: center;
+      font-size: 1rem;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      margin-top: 10px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+      min-width: 200px;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    #subjectsInput {
+      margin-top: 15px;
+      margin-bottom: 25px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 900px;
+      margin: 20px auto 40px auto;
+      box-shadow: 0 2px 9px rgba(0,0,0,0.1);
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px 8px;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    th {
+      background-color: #007bff;
+      color: white;
+      user-select: none;
+    }
+    td.lunch {
+      background-color: #f0ad4e;
+      font-weight: bold;
+      user-select: none;
+    }
+    td.free {
+      color: #999;
+      font-style: italic;
+    }
+    .section-title {
+      text-align: center;
+      color: #003366;
+      font-weight: 700;
+      font-size: 1.3rem;
+      margin-top: 45px;
+    }
+    @media (max-width: 720px) {
+      input[type=number], input[type=text] {
+        width: 100%;
+      }
+      table {
+        font-size: 0.8rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h2>Section Timetable Generator</h2>
+
+  <label for="numSections">Number of Sections: </label>
+  <input type="number" id="numSections" min="1" max="5" value="1" aria-label="Number of Sections"><br>
+
+  <div id="subjectsInput" role="region" aria-live="polite" aria-atomic="true">
+    <label for="subjects">Subjects (comma separated):</label><br>
+    <input type="text" id="subjects" placeholder="Math,Science,English,History" aria-label="Subjects"><br><br>
+  </div>
+
+  <button onclick="generateTimetable()">Generate Timetable</button>
+
+  <div id="timetableOutput" role="region" aria-live="polite" aria-atomic="true"></div>
+
+  <script>
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const periodsPerDay = 8;
+
+    function ensureEightSubjects(subjects) {
+      let repeated = [...subjects];
+      while(repeated.length < 8) {
+        repeated = repeated.concat(subjects.slice(0, 8 - repeated.length));
+      }
+      return repeated;
+    }
+
+    function generateTimetable() {
+      const numSections = parseInt(document.getElementById('numSections').value);
+      if(isNaN(numSections) || numSections < 1 || numSections > 5) {
+        alert('Please enter a valid number of sections (1 to 5)');
+        return;
+      }
+
+      let subjStr = document.getElementById('subjects').value.trim();
+      if(!subjStr) {
+        alert('Please enter subjects');
+        return;
+      }
+      let subjectsList = subjStr.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      if(subjectsList.length === 0) {
+        alert('Please enter valid subjects');
+        return;
+      }
+      subjectsList = ensureEightSubjects(subjectsList);
+      
+      // Check if enough subjects to avoid clashes across sections and periods
+      // At minimum, to meet no clash in same period at same day, number of subjects should be >= number of sections
+      if(subjectsList.length < numSections){
+        alert(`Please enter at least ${numSections} subjects to avoid clashes across sections`);
+        return;
+      }
+
+      let timetableHTML = '';
+
+      // Global map to track assigned subjects across sections by day and period
+      // key: day_index + '-' + period_index, value: Set of subjects already assigned in that slot across sections
+      const globalAssignments = {};
+
+      // For each section we'll build its timetable
+      for(let sectionIndex=0; sectionIndex<numSections; sectionIndex++) {
+        timetableHTML += `<h3 class="section-title">Timetable for Section ${sectionIndex+1}</h3>`;
+        timetableHTML += `<table role="table" aria-label="Timetable for Section ${sectionIndex+1}"><thead><tr><th>Day / Period</th>`;
+
+        for(let p=1; p<=periodsPerDay; p++) {
+          timetableHTML += `<th>Period ${p}</th>`;
+        }
+        timetableHTML += `</tr></thead><tbody>`;
+
+        // assignedSubjects matrix for current section
+        const assignedSubjects = Array(days.length).fill(0).map(() => Array(periodsPerDay).fill(''));
+
+        // tracker to rotate through subjects for assigning fairly
+        let subsIndexTracker = 0;
+
+        for(let d=0; d<days.length; d++) {
+          // Keep track of subjects used in this day for this section to avoid repeats
+          let usedToday = new Set();
+
+          for(let p=1; p<=periodsPerDay; p++) {
+            if(p === 4) { // Lunch break after 3rd period
+              assignedSubjects[d][p-1] = 'Lunch Break';
+              continue;
+            }
+
+            // Key for global assignments map
+            const slotKey = d + '-' + (p-1);
+            if(!globalAssignments[slotKey]) {
+              globalAssignments[slotKey] = new Set();
+            }
+
+            let foundSubject = null;
+            let tries = 0;
+            let subjectsCount = subjectsList.length;
+
+            // Try all subjects to find valid one - subject that is:
+            // - Not used in this section today
+            // - Not used at same day+period in other sections (globalAssignments)
+            // - Not same as previous day same period in this section
+            while(tries < subjectsCount) {
+              let candidate = subjectsList[(subsIndexTracker + tries) % subjectsCount];
+              let prevDaySubject = d > 0 ? assignedSubjects[d-1][p-1] : null;
+
+              if(
+                !usedToday.has(candidate) &&                        // Not repeated in same section same day
+                !globalAssignments[slotKey].has(candidate) &&       // Not used in same day+period in other sections
+                candidate !== prevDaySubject                         // Not repeated period consecutive day in this section
+              ) {
+                foundSubject = candidate;
+                subsIndexTracker = (subsIndexTracker + tries + 1) % subjectsCount;
+                break;
+              }
+              tries++;
+            }
+
+            if(foundSubject === null) {
+              // fallback to Free if no subject fits constraints
+              assignedSubjects[d][p-1] = 'Free';
+            } else {
+              assignedSubjects[d][p-1] = foundSubject;
+              usedToday.add(foundSubject);
+              globalAssignments[slotKey].add(foundSubject);
+            }
+          }
+        }
+
+        // Generate table rows for this section
+        for(let d=0; d<days.length; d++) {
+          timetableHTML += `<tr><td><strong>${days[d]}</strong></td>`;
+          for(let p=0; p<periodsPerDay; p++) {
+            const subj = assignedSubjects[d][p];
+            if(subj === 'Lunch Break') {
+              timetableHTML += `<td class="lunch" aria-label="Lunch Break">${subj}</td>`;
+            } else if(subj === 'Free') {
+              timetableHTML += `<td class="free" aria-label="Free period">Free</td>`;
+            } else {
+              timetableHTML += `<td aria-label="Subject: ${subj}">${subj}</td>`;
+            }
+          }
+          timetableHTML += '</tr>';
+        }
+
+        timetableHTML += '</tbody></table>';
+      }
+
+      document.getElementById('timetableOutput').innerHTML = timetableHTML;
+    }
+  </script>
+</body>
+</html>
+
